@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import type { HistoryEventKind } from "shared/event"
-import { clip, mapEvent } from "./mapper"
+import { clip, createMapper } from "./mapper"
 
 function durableEvent(type: string, data: Record<string, unknown>, version = 1) {
   return {
@@ -16,12 +16,20 @@ function ephemeralEvent(type: string, data: Record<string, unknown>) {
   return { id: "evt_test", created: 0, type, data }
 }
 
+function payloadStrings(value: unknown): string[] {
+  if (typeof value === "string") return [value]
+  if (Array.isArray(value)) return value.flatMap(payloadStrings)
+  if (typeof value === "object" && value !== null) return Object.values(value).flatMap(payloadStrings)
+  return []
+}
+
 function expectMapped(
   event: { type: string; data: Record<string, unknown>; [k: string]: unknown },
   kind: HistoryEventKind,
   content: string,
+  payload: Record<string, unknown> = event.data,
 ) {
-  expect(mapEvent({ host: "alpha", project: "/repo", event })).toEqual({
+  expect(createMapper()({ host: "alpha", project: "/repo", event })).toEqual({
     host: "alpha",
     eventId: "evt_test",
     sessionId: "ses_1",
@@ -29,7 +37,7 @@ function expectMapped(
     ts: "1970-01-01T00:00:00.000Z",
     kind,
     content,
-    payload: event.data,
+    payload,
   })
 }
 
@@ -100,7 +108,7 @@ test("mapEvent - tool calls carry serialized input", () => {
     executed: false,
   })
 
-  expectMapped(event, "tool", 'unknown called {"pattern":"needle"}')
+  expectMapped(event, "tool", 'call_grep called {"pattern":"needle"}')
 })
 
 test("mapEvent - successful tools carry text output", () => {
@@ -120,7 +128,7 @@ test("mapEvent - successful tools carry text output", () => {
     2,
   )
 
-  expectMapped(event, "tool", "unknown success Found 2 matches")
+  expectMapped(event, "tool", "call_grep success Found 2 matches")
 })
 
 test("mapEvent - failed tools carry partial output and the error", () => {
@@ -137,7 +145,7 @@ test("mapEvent - failed tools carry partial output and the error", () => {
     2,
   )
 
-  expectMapped(event, "tool", "unknown failed Partial output\nCommand failed")
+  expectMapped(event, "tool", "call_shell failed Partial output\nCommand failed")
 })
 
 test.each([
@@ -157,7 +165,7 @@ test("mapEvent - unknown type returns undefined", () => {
     delta: "partial",
   })
 
-  expect(mapEvent({ host: "alpha", project: "/repo", event })).toBeUndefined()
+  expect(createMapper()({ host: "alpha", project: "/repo", event })).toBeUndefined()
 })
 
 test.each([
@@ -187,7 +195,7 @@ test.each([
     durableEvent("session.step.streamed", { sessionID: "ses_1", assistantMessageID: "msg_1" }),
   ],
 ])("mapEvent - excludes %s", (_type, event) => {
-  expect(mapEvent({ host: "alpha", project: "/repo", event })).toBeUndefined()
+  expect(createMapper()({ host: "alpha", project: "/repo", event })).toBeUndefined()
 })
 
 test("mapEvent - preserves whitespace in tool output", () => {
@@ -203,27 +211,105 @@ test("mapEvent - preserves whitespace in tool output", () => {
     2,
   )
 
-  expectMapped(event, "tool", "unknown success  output \n")
+  expectMapped(event, "tool", "call_read success  output \n")
 })
 
-test("mapEvent - clips tool output to 4096 bytes", () => {
-  const prefix = `${"a".repeat(4095)}é`
+test("mapEvent - correlates tool names by call ID without recording input.started", () => {
+  const mapEvent = createMapper()
+  const started = durableEvent("session.tool.input.started", {
+    sessionID: "ses_1",
+    assistantMessageID: "msg_1",
+    id: "call_grep",
+    name: "grep",
+  })
+  const called = durableEvent("session.tool.called", {
+    sessionID: "ses_1",
+    assistantMessageID: "msg_1",
+    id: "call_grep",
+    input: { pattern: "needle" },
+    executed: false,
+  })
+  const succeeded = durableEvent(
+    "session.tool.success",
+    {
+      sessionID: "ses_1",
+      assistantMessageID: "msg_1",
+      id: "call_grep",
+      content: [{ type: "text", text: "Found" }],
+      executed: true,
+    },
+    2,
+  )
+  const failed = durableEvent(
+    "session.tool.failed",
+    {
+      sessionID: "ses_1",
+      assistantMessageID: "msg_1",
+      id: "call_grep",
+      error: { type: "tool.execution", message: "Failed" },
+      executed: true,
+    },
+    2,
+  )
+
+  expect(mapEvent({ host: "alpha", project: "/repo", event: started })).toBeUndefined()
+  expect(mapEvent({ host: "alpha", project: "/repo", event: called })?.content).toBe('grep called {"pattern":"needle"}')
+  expect(mapEvent({ host: "alpha", project: "/repo", event: succeeded })?.content).toBe("grep success Found")
+  expect(mapEvent({ host: "alpha", project: "/repo", event: failed })?.content).toBe("grep failed Failed")
+})
+
+test("mapEvent - clips tool output to 4096 bytes without splitting Unicode", () => {
+  const prefix = "a".repeat(4081)
+  const output = `${prefix}é${"z".repeat(20)}`
+  const expected = `${prefix}…[truncated]`
+  const result = clip(output)
+
+  expect(Buffer.byteLength(result, "utf8")).toBeLessThanOrEqual(4096)
+  expect(Buffer.byteLength(expected, "utf8")).toBe(4095)
+  expect(result).toBe(expected)
+  expect(result.includes(String.fromCodePoint(0xfffd))).toBe(false)
+
   const event = durableEvent(
     "session.tool.success",
     {
       sessionID: "ses_1",
       assistantMessageID: "msg_1",
       id: "call_read",
-      content: [{ type: "text", text: `${prefix}z` }],
+      content: [{ type: "text", text: output }],
+      executed: true,
+    },
+    2,
+  )
+  expectMapped(event, "tool", `call_read success ${expected}`, {
+    ...event.data,
+    content: [{ type: "text", text: expected }],
+  })
+})
+
+test("mapEvent - bounds every nested string in tool payloads", () => {
+  const output = "🙂".repeat(2500)
+  const event = durableEvent(
+    "session.tool.success",
+    {
+      sessionID: "ses_1",
+      assistantMessageID: "msg_1",
+      id: "call_read",
+      content: [{ type: "text", text: output }],
+      metadata: { detail: { text: output } },
       executed: true,
     },
     2,
   )
 
-  expectMapped(event, "tool", `unknown success ${prefix}…[truncated]`)
+  const record = createMapper()({ host: "alpha", project: "/repo", event })
+  const strings = payloadStrings(record?.payload)
+  expect(strings.length).toBeGreaterThan(0)
+  expect(strings.filter((value) => Buffer.byteLength(value, "utf8") > 4096)).toEqual([])
+  expect(strings).not.toContain(output)
 })
 
-test("clip - preserves text at the budget and clips text above it", () => {
-  expect(clip("abcdef", 6)).toBe("abcdef")
-  expect(clip("abcdefgh", 6)).toBe("abcdef…[truncated]")
+test("clip - preserves text at the byte budget and includes the suffix within it", () => {
+  expect(clip("abcdef", 20)).toBe("abcdef")
+  expect(clip("abcdefghijklmnopqrstu", 20)).toBe("abcdef…[truncated]")
+  expect(Buffer.byteLength(clip("abcdefghijklmnopqrstu", 20), "utf8")).toBe(20)
 })
