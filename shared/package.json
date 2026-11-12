@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./event": "./src/event.ts"
+    "./event": "./src/event.ts",
+    "./client": "./src/client.ts"
   }
 }

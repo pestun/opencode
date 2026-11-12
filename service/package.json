@@ -3,9 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "db:up": "docker compose up -d db"
+    "db:up": "docker compose up -d db",
+    "start": "bun run src/index.ts"
   },
   "dependencies": {
+    "hono": "^4.13.18",
     "postgres": "^3.4.7",
     "shared": "workspace:*"
   }
