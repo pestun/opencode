@@ -1,4 +1,12 @@
 {
   "name": "service",
-  "private": true
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "db:up": "docker compose up -d db"
+  },
+  "dependencies": {
+    "postgres": "^3.4.7",
+    "shared": "workspace:*"
+  }
 }
