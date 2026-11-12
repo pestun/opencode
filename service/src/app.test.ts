@@ -2,28 +2,24 @@ import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test"
 import { fileURLToPath } from "node:url"
 import { createHistoryClient } from "shared/client"
 import type { HistoryEvent } from "shared/event"
-import { buildApp } from "./app"
-import { connect, listSessions } from "./db"
+import { startTestService, type TestService } from "./testkit"
 
-const sql = connect()
-let server: ReturnType<typeof Bun.serve>
+let service: TestService
 let url: string
 let client: ReturnType<typeof createHistoryClient>
 
 beforeAll(async () => {
-  await listSessions(sql)
-  server = Bun.serve({ port: 0, fetch: buildApp(sql, "test-token").fetch })
-  url = `http://127.0.0.1:${server.port}`
-  client = createHistoryClient({ url, token: "test-token" })
+  service = await startTestService()
+  url = service.url
+  client = createHistoryClient({ url, token: service.token })
 })
 
 beforeEach(async () => {
-  await sql`truncate table events`
+  await service.sql`truncate table events`
 })
 
 afterAll(async () => {
-  server.stop(true)
-  await sql.end()
+  await service.stop()
 })
 
 function makeEvent(overrides: Partial<HistoryEvent> = {}): HistoryEvent {
