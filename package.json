@@ -1,0 +1,9 @@
+{
+  "name": "opencode-shared-history",
+  "private": true,
+  "workspaces": ["shared", "service", "plugin"],
+  "devDependencies": {
+    "typescript": "^6",
+    "@types/bun": "^1.4"
+  }
+}
