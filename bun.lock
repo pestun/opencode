@@ -11,6 +11,9 @@
     },
     "plugin": {
       "name": "plugin",
+      "devDependencies": {
+        "shared": "workspace:*",
+      },
     },
     "service": {
       "name": "service",
