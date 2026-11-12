@@ -63,6 +63,24 @@ test("readOutbox - tolerates truncated final line", async () => {
   expect(warnings).toHaveBeenCalledTimes(1)
 })
 
+test("append after a torn partial tail preserves the new event", async () => {
+  await append([event(1)])
+  await writeFile(outboxPath(), `${JSON.stringify(event(1))}\n{"torn`)
+
+  await append([event(3)])
+
+  expect(await readPending()).toEqual([event(1), event(3)])
+})
+
+test("append after a complete unterminated JSON tail preserves both events", async () => {
+  await append([event(1)])
+  await writeFile(outboxPath(), `${JSON.stringify(event(1))}\n${JSON.stringify(event(2))}`)
+
+  await append([event(3)])
+
+  expect(await readPending()).toEqual([event(1), event(2), event(3)])
+})
+
 test("ack removes exactly the acked prefix", async () => {
   await append([event(1), event(2), event(3)])
 

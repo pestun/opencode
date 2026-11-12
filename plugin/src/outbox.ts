@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises"
+import { mkdir, open, readFile, rename, stat, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { decodeHistoryEventBatch, type HistoryEvent } from "shared/event"
@@ -16,7 +16,19 @@ export function append(events: HistoryEvent[]): Promise<void> {
   return serialize(async () => {
     const path = outboxPath()
     await mkdir(dirname(path), { recursive: true })
-    await appendFile(path, `${events.map((event) => JSON.stringify(event)).join("\n")}\n`, "utf8")
+    const file = await open(path, "a+")
+    try {
+      const { size } = await file.stat()
+      let separator = ""
+      if (size > 0) {
+        const lastByte = Buffer.alloc(1)
+        await file.read(lastByte, 0, 1, size - 1)
+        if (lastByte[0] !== 10) separator = "\n"
+      }
+      await file.appendFile(`${separator}${events.map((event) => JSON.stringify(event)).join("\n")}\n`, "utf8")
+    } finally {
+      await file.close()
+    }
 
     if ((await stat(path)).size < maxOutboxBytes) return
     const lines = outboxLines(await readFile(path, "utf8"))
