@@ -236,7 +236,7 @@ test("mapEvent - preserves whitespace in tool output", () => {
   expectMapped(event, "tool", "call_read success  output \n")
 })
 
-test("mapEvent - correlates tool names by call ID without recording input.started", () => {
+test("mapEvent - correlates tool names until a terminal event evicts the call ID", () => {
   const mapEvent = createMapper()
   const started = durableEvent("session.tool.input.started", {
     sessionID: "ses_1",
@@ -277,7 +277,47 @@ test("mapEvent - correlates tool names by call ID without recording input.starte
   expect(mapEvent({ host: "alpha", project: "/repo", event: started })).toBeUndefined()
   expect(mapEvent({ host: "alpha", project: "/repo", event: called })?.content).toBe('grep called {"pattern":"needle"}')
   expect(mapEvent({ host: "alpha", project: "/repo", event: succeeded })?.content).toBe("grep success Found")
-  expect(mapEvent({ host: "alpha", project: "/repo", event: failed })?.content).toBe("grep failed Failed")
+  expect(mapEvent({ host: "alpha", project: "/repo", event: failed })?.content).toBe("call_grep failed Failed")
+})
+
+test("mapEvent - evicts a tool name after terminal failure", () => {
+  const mapEvent = createMapper()
+  const started = durableEvent("session.tool.input.started", {
+    sessionID: "ses_1",
+    id: "call_shell",
+    name: "shell",
+  })
+  const failed = durableEvent("session.tool.failed", {
+    sessionID: "ses_1",
+    id: "call_shell",
+    error: { message: "Failed" },
+  })
+
+  mapEvent({ host: "alpha", project: "/repo", event: started })
+  expect(mapEvent({ host: "alpha", project: "/repo", event: failed })?.content).toBe("shell failed Failed")
+  expect(mapEvent({ host: "alpha", project: "/repo", event: failed })?.content).toBe("call_shell failed Failed")
+})
+
+test("mapEvent - bounds unresolved tool names to 1000 oldest-first entries", () => {
+  const mapEvent = createMapper()
+  for (let index = 0; index <= 1000; index++) {
+    mapEvent({
+      host: "alpha",
+      project: "/repo",
+      event: durableEvent("session.tool.input.started", {
+        sessionID: "ses_1",
+        id: `call_${index}`,
+        name: `tool_${index}`,
+      }),
+    })
+  }
+  const terminal = (id: string) =>
+    durableEvent("session.tool.success", { sessionID: "ses_1", id, content: [{ type: "text", text: "done" }] })
+
+  expect(mapEvent({ host: "alpha", project: "/repo", event: terminal("call_0") })?.content).toBe("call_0 success done")
+  expect(mapEvent({ host: "alpha", project: "/repo", event: terminal("call_1000") })?.content).toBe(
+    "tool_1000 success done",
+  )
 })
 
 test("mapEvent - clips tool output to 4096 bytes without splitting Unicode", () => {

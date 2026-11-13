@@ -204,6 +204,71 @@ test("plugin - captures events and registers all history tools", async () => {
   }
 })
 
+test("plugin - a malformed event warns and does not stop later capture", async () => {
+  const host = `plugin-malformed-${crypto.randomUUID()}`
+  configureTemporaryOutbox(host)
+  temporaryDirectory = await mkdtemp(join(tmpdir(), "shared-history-plugin-"))
+  process.env.HISTORY_OUTBOX = join(temporaryDirectory, "outbox.jsonl")
+  const warnings = spyOn(console, "warn").mockImplementation(() => {})
+  const ctx = {
+    location: { directory: "/repo/plugin" },
+    event: {
+      subscribe() {
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield {
+              id: "bad-timestamp",
+              created: Number.NaN,
+              type: "session.text.ended",
+              data: { sessionID: "ses_plugin", text: "must not stop capture" },
+            }
+            yield {
+              id: "valid-after-malformed",
+              created: Date.parse("2026-11-12T12:00:00.000Z"),
+              type: "session.text.ended",
+              data: { sessionID: "ses_plugin", text: "valid event survives malformed capture" },
+            }
+          },
+        }
+      },
+    },
+    tool: {
+      async transform() {
+        return { dispose: async () => {} }
+      },
+    },
+    session: {
+      async create() {
+        return { id: "unused" }
+      },
+      async prompt() {
+        return {}
+      },
+    },
+  }
+
+  const cleanup = await plugin.setup(ctx)
+  try {
+    let matches: HistoryEvent[] = []
+    const deadline = Date.now() + 5_000
+    while (matches.length === 0 && Date.now() < deadline) {
+      matches = await client.search({ query: "valid event survives malformed capture", host })
+      if (matches.length === 0) await Bun.sleep(10)
+    }
+    expect(matches).toHaveLength(1)
+    expect(await readPending()).toEqual([])
+    expect(
+      warnings.mock.calls.some(
+        ([message]) =>
+          typeof message === "string" && message.includes("session.text.ended") && message.includes("bad-timestamp"),
+      ),
+    ).toBe(true)
+  } finally {
+    await cleanup?.()
+    warnings.mockRestore()
+  }
+}, 10_000)
+
 test("plugin - setup failures warn without breaking opencode", async () => {
   const warnings = spyOn(console, "warn").mockImplementation(() => {})
   try {

@@ -2,6 +2,7 @@ import type { HistoryEvent, HistoryEventKind } from "shared/event"
 
 const encoder = new TextEncoder()
 const truncationSuffix = "…[truncated]"
+const maxToolNames = 1000
 
 /**
  * Field names verified against opencode v2.2.7 `packages/schema/src/event.ts`, `session-event.ts`, `tool.ts`, and
@@ -28,12 +29,24 @@ export function createMapper() {
   return function mapEvent(input: MapperInput): HistoryEvent | undefined {
     const data = isRecord(input.event.data) ? input.event.data : {}
     if (input.event.type === "session.tool.input.started") {
-      if (typeof data.id === "string" && typeof data.name === "string") toolNames.set(data.id, data.name)
+      if (typeof data.id === "string" && typeof data.name === "string") {
+        if (!toolNames.has(data.id) && toolNames.size >= maxToolNames) {
+          const oldest = toolNames.keys().next().value
+          if (oldest !== undefined) toolNames.delete(oldest)
+        }
+        toolNames.set(data.id, data.name)
+      }
       return
     }
 
     const mapped = mapContent(input.event.type, data, toolNames)
     if (!mapped) return
+    if (
+      (input.event.type === "session.tool.success" || input.event.type === "session.tool.failed") &&
+      typeof data.id === "string"
+    ) {
+      toolNames.delete(data.id)
+    }
 
     return {
       host: input.host,

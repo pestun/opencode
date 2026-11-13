@@ -34,10 +34,17 @@ export default {
           while (!stopped) {
             const next = await iterator.next()
             if (next.done) return
-            const event = mapper({ host, project: ctx.location.directory, event: next.value })
-            if (!event) continue
-            await append([event])
-            loop.notify()
+            try {
+              const event = mapper({ host, project: ctx.location.directory, event: next.value })
+              if (!event) continue
+              await append([event])
+              loop.notify()
+            } catch (error) {
+              if (!stopped) {
+                const eventId = typeof next.value.id === "string" ? next.value.id : "unknown"
+                console.warn(`shared-history capture failed for ${next.value.type} event ${eventId}`, error)
+              }
+            }
           }
         } catch (error) {
           if (!stopped) console.warn("shared-history capture failed", error)
