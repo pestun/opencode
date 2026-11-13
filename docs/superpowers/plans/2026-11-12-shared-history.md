@@ -150,7 +150,7 @@ test("batch rejects if any item invalid", () => expect(() => decodeHistoryEventB
   - `session.message.content.updated` and `session.text.ended` → kind `message`, content = the message text (field names verified in Step 2).
   - `session.tool.called`, `session.tool.success`, `session.tool.failed` → kind `tool`, content = `<tool name> <status> <truncated text>`.
   - `session.execution.started|succeeded|failed|interrupted` → kind `execution`, content = status line.
-  - **Everything else returns `undefined`** (deltas, reasoning, usage, inbox traffic never recorded).
+  - **Everything else returns `undefined`** (deltas, reasoning, usage, synthetic inbox traffic never recorded). **Amended after e2e (commit c06e987):** `session.inbox.enqueued` with `item.type === "user"` IS captured (kind "message", exact admitted prompt text) — assistant replay events alone silently dropped user prompts. Synthetic/compaction/move inbox traffic remains ignored.
 - Content truncation helper `clip(text: string, max = 4096): string` appends `…[truncated]` when clipping. Tool payload text is clipped **at capture**, inside `mapEvent`.
 - The mapper only reads ordinary string/object fields; payloads like Effect values, so verify actual field names from source in Step 2 — the fixtures must match reality, not invention.
 
