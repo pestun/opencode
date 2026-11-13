@@ -129,6 +129,29 @@ test("tools - search returns formatted snippets", async () => {
   })
 })
 
+test("tools - seed rejects an empty transcript before creating a session", async () => {
+  let creates = 0
+  const tools = createHistoryTools(
+    {
+      session: {
+        async create() {
+          creates++
+          return { id: "ses_should_not_exist" }
+        },
+        async prompt() {
+          return {}
+        },
+      },
+    },
+    client,
+  )
+
+  await expect(
+    tools.history_seed.execute({ host: `missing-${crypto.randomUUID()}`, sessionId: "ses_missing" }),
+  ).rejects.toThrow("Session not found:")
+  expect(creates).toBe(0)
+})
+
 test("tools - unconfigured returns instructions text", async () => {
   const ctx = {
     session: {

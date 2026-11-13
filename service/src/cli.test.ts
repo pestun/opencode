@@ -230,6 +230,17 @@ test("seed authenticates every request to a managed local server", async () => {
   })
 })
 
+test("seed rejects an unknown session before any local session request", async () => {
+  const local = await startLocalSeed()
+
+  const result = await invoke(["seed", "missing-host", "missing-session"], local.env)
+
+  expect(result.exit).toBe(1)
+  expect(result.stdout).toBe("")
+  expect(result.stderr).toContain("Session not found: missing-host/missing-session")
+  expect(local.requests).toEqual([])
+})
+
 test("seed boundary rejects missing or wrong Basic auth with a clear error", async () => {
   const source = makeEvent({ host: "source-host", sessionId: "source-session" })
   await client.ingest([source])

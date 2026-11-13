@@ -104,7 +104,9 @@ export async function runCli(
     if (args.length !== 2) return printUsage(output)
     const [host, sessionId] = args
     if (command === "seed") {
-      const text = condenseTranscript(await client.transcript(host, sessionId))
+      const events = await client.transcript(host, sessionId)
+      if (events.length === 0) throw new Error(`Session not found: ${host}/${sessionId}`)
+      const text = condenseTranscript(events)
       const server = await discoverLocalOpenCode(env)
       const created = await localOpenCodeRequest(server, "/api/session", {
         title: `Fork of ${sessionId} on ${host}`,

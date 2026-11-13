@@ -30,6 +30,7 @@ export async function seedSession(
   source: { host: string; sessionId: string },
 ): Promise<{ newSessionId: string }> {
   const events = await client.transcript(source.host, source.sessionId)
+  if (events.length === 0) throw new Error(`Session not found: ${source.host}/${source.sessionId}`)
   const session = await ctx.session.create({
     title: `Fork of ${source.sessionId} on ${source.host}`,
     metadata: { forkedFrom: source },

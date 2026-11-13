@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test"
+import type { HistoryClient } from "./client"
 import type { HistoryEvent, HistoryEventKind } from "./event"
-import { condenseTranscript } from "./seed"
+import { condenseTranscript, seedSession } from "./seed"
 
 function event(kind: HistoryEventKind, content: string, ts: string, eventId = ts): HistoryEvent {
   return {
@@ -37,6 +38,31 @@ test("condenseTranscript - prepends fork header and sorts chronologically", () =
 
   expect(result.startsWith("Forked from host alpha, session ses_source. Original below.\n")).toBe(true)
   expect(result.indexOf("Original title")).toBeLessThan(result.indexOf("later message"))
+})
+
+test("seedSession - rejects an unknown session before creating a local fork", async () => {
+  let creates = 0
+  const client = {
+    async transcript() {
+      return []
+    },
+  } as HistoryClient
+  const ctx = {
+    session: {
+      async create() {
+        creates++
+        return { id: "ses_should_not_exist" }
+      },
+      async prompt() {
+        throw new Error("unknown session must not be prompted")
+      },
+    },
+  }
+
+  await expect(seedSession(ctx, client, { host: "alpha", sessionId: "ses_missing" })).rejects.toThrow(
+    "Session not found: alpha/ses_missing",
+  )
+  expect(creates).toBe(0)
 })
 
 test("condenseTranscript - respects budget by dropping oldest", () => {
