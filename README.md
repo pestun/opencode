@@ -179,7 +179,7 @@ Capture appends selected events to `~/.local/share/opencode-shared-history/outbo
 - Normal sync flushes every 2 seconds in batches of up to 100 events and also flushes promptly when new events arrive.
 - Records are removed only after successful ingestion. A restart or retry may redeliver them, and the service's `(host, event_id)` key makes duplicate delivery safe.
 - When connectivity returns, delivery resumes automatically. Because retry uses exponential backoff capped at 60 seconds, a pending batch can take approximately 60 seconds to replay after a long outage. Search, transcript, and seed are online reads and require the service to be reachable.
-- At 10 MB, the outbox discards its oldest half and logs a warning. Extended offline operation can therefore shed old local records; size the outage window and central backups accordingly.
+- Above 10 MB, the outbox discards the oldest whole JSONL records until it is within the limit and logs a warning. A single record larger than 10 MB is dropped rather than clipped into invalid JSON. Extended offline operation can therefore shed old local records; size the outage window and central backups accordingly.
 
 ## Security and privacy
 

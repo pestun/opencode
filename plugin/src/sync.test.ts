@@ -199,6 +199,57 @@ test("sync - overlapping triggers stay single-flight and coalesce a follow-up", 
   expect(await liveClient.transcript(host, "ses_sync")).toHaveLength(2)
 })
 
+test("sync - rotation during a blocked ingest never acknowledges unsent survivors", async () => {
+  const host = `sync-rotation-${crypto.randomUUID()}`
+  const events = Array.from({ length: 159 }, (_, index) => ({
+    ...event(index + 1, host),
+    content: "x".repeat(64 * 1024),
+  }))
+  await append(events)
+  expect(await readPending()).toHaveLength(159)
+
+  const ingested = new Set<string>()
+  let calls = 0
+  let markStarted!: () => void
+  const started = new Promise<void>(resolve => {
+    markStarted = resolve
+  })
+  let unblock!: () => void
+  const blocked = new Promise<void>(resolve => {
+    unblock = resolve
+  })
+  const client: HistoryClient = {
+    ...liveClient,
+    async ingest(batch) {
+      calls++
+      if (calls === 1) {
+        markStarted()
+        await blocked
+      }
+      for (const record of batch) ingested.add(record.eventId)
+    },
+  }
+  const loop = track(client)
+  loop.notify()
+  await started
+
+  await append([{ ...event(160, host), content: "x".repeat(64 * 1024) }])
+  const survivors = await readPending()
+  expect(survivors.at(-1)?.eventId).toBe(event(160, host).eventId)
+  expect(survivors.length).toBeLessThan(160)
+  loop.notify()
+  unblock()
+
+  await eventually(async () => {
+    expect(ingested.has(event(160, host).eventId)).toBe(true)
+    expect(await readPending()).toEqual([])
+  })
+  const pending = await readPending()
+  for (const survivor of survivors) {
+    expect(ingested.has(survivor.eventId) || pending.some(record => record.eventId === survivor.eventId)).toBe(true)
+  }
+}, 15_000)
+
 test("sync - reports once per failure streak and resets after success", async () => {
   const host = `sync-errors-${crypto.randomUUID()}`
   await append([event(1, host)])

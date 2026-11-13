@@ -64,7 +64,7 @@ export function createSyncLoop({ client, intervalMs = 2000, onError = console.wa
         for (let offset = 0; offset < pending.length; offset += 100) {
           const batch = pending.slice(offset, offset + 100)
           await currentClient.ingest(batch)
-          await ack(batch.length)
+          if (!(await ack(batch))) break
         }
         failures = 0
         failureReported = false

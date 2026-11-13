@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { HistoryEvent } from "shared/event"
@@ -81,12 +81,21 @@ test("append after a complete unterminated JSON tail preserves both events", asy
   expect(await readPending()).toEqual([event(1), event(2), event(3)])
 })
 
-test("ack removes exactly the acked prefix", async () => {
+test("ack removes exactly the matching decoded prefix", async () => {
   await append([event(1), event(2), event(3)])
 
-  await ack(2)
+  expect(await ack([event(1), event(2)])).toBe(true)
 
   expect(await readPending()).toEqual([event(3)])
+})
+
+test("ack abandons a flush when rotation changes the decoded prefix", async () => {
+  await append([event(1), event(2), event(3)])
+  await writeFile(outboxPath(), `${JSON.stringify(event(2))}\n${JSON.stringify(event(3))}\n`)
+
+  expect(await ack([event(1), event(2)])).toBe(false)
+
+  expect(await readPending()).toEqual([event(2), event(3)])
 })
 
 test("replay skips individually invalid lines", async () => {
@@ -105,7 +114,7 @@ test("ack counts decoded records rather than invalid physical lines", async () =
     `${JSON.stringify(event(1))}\nnot-json\n${JSON.stringify(event(2))}\n${JSON.stringify(event(3))}\n`,
   )
 
-  await ack(2)
+  expect(await ack([event(1), event(2)])).toBe(true)
 
   expect(await readPending()).toEqual([event(3)])
 })
@@ -115,7 +124,8 @@ test("interleaved append and ack calls do not lose unacked records", async () =>
   const operations: Promise<void>[] = [append(first)]
 
   for (let start = 0; start < first.length; start += 10) {
-    operations.push(ack(3))
+    const acknowledged = (start / 10) * 3
+    operations.push(ack(first.slice(acknowledged, acknowledged + 3)))
     operations.push(append(Array.from({ length: 10 }, (_, offset) => event(100 + start + offset))))
   }
   await Promise.all(operations)
@@ -126,14 +136,29 @@ test("interleaved append and ack calls do not lose unacked records", async () =>
   expect(pending).toHaveLength(170)
 })
 
-test("at 10 MB append discards the oldest half with one warning", async () => {
+test("at 10 MB append discards only the oldest lines needed for the byte bound", async () => {
   const records = Array.from({ length: 170 }, (_, index) => largeEvent(index))
 
   await append(records)
 
-  const pending = await readPending()
-  expect(pending[0]?.eventId).toBe("evt_85")
-  expect(pending).toHaveLength(85)
+  const expected: HistoryEvent[] = []
+  let bytes = 0
+  for (const record of [...records].reverse()) {
+    const lineBytes = Buffer.byteLength(JSON.stringify(record), "utf8") + 1
+    if (bytes + lineBytes > 10 * 1024 * 1024) break
+    expected.unshift(record)
+    bytes += lineBytes
+  }
+  expect(await readPending()).toEqual(expected)
+  expect((await stat(outboxPath())).size).toBeLessThanOrEqual(10 * 1024 * 1024)
   expect(warnings).toHaveBeenCalledTimes(1)
   expect((await readFile(outboxPath(), "utf8")).endsWith("\n")).toBe(true)
+})
+
+test("a single oversized record is dropped instead of clipping invalid JSON", async () => {
+  await append([event(1, "x".repeat(10 * 1024 * 1024))])
+
+  expect(await readPending()).toEqual([])
+  expect((await stat(outboxPath())).size).toBeLessThanOrEqual(10 * 1024 * 1024)
+  expect(warnings).toHaveBeenCalledTimes(1)
 })

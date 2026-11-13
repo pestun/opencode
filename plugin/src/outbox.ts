@@ -30,10 +30,14 @@ export function append(events: HistoryEvent[]): Promise<void> {
       await file.close()
     }
 
-    if ((await stat(path)).size < maxOutboxBytes) return
+    if ((await stat(path)).size <= maxOutboxBytes) return
     const lines = outboxLines(await readFile(path, "utf8"))
-    await replace(path, `${lines.slice(Math.floor(lines.length / 2)).join("\n")}\n`)
-    console.warn("History outbox reached 10 MB; discarded the oldest half")
+    let retainedBytes = Buffer.byteLength(`${lines.join("\n")}\n`, "utf8")
+    while (lines.length > 0 && retainedBytes > maxOutboxBytes) {
+      retainedBytes -= Buffer.byteLength(lines.shift()!, "utf8") + 1
+    }
+    await replace(path, lines.length > 0 ? `${lines.join("\n")}\n` : "")
+    console.warn("History outbox exceeded 10 MB; discarded oldest records to fit (oversized records are dropped)")
   })
 }
 
@@ -60,34 +64,38 @@ export function readPending(): Promise<HistoryEvent[]> {
   })
 }
 
-export function ack(count: number): Promise<void> {
+export function ack(expected: HistoryEvent[]): Promise<boolean> {
   return serialize(async () => {
-    if (count <= 0) return
+    if (expected.length === 0) return true
 
     const path = outboxPath()
     let text: string
     try {
       text = await readFile(path, "utf8")
     } catch (error) {
-      if (isMissingFile(error)) return
+      if (isMissingFile(error)) return false
       throw error
     }
 
     const lines = text.split("\n")
-    let decoded = 0
-    let remainder = ""
+    let matched = 0
     for (let index = 0; index < lines.length; index++) {
+      let current: HistoryEvent
       try {
-        decodeLine(lines[index] ?? "")
-        decoded++
-      } catch {}
+        current = decodeLine(lines[index] ?? "")
+      } catch {
+        continue
+      }
 
-      if (decoded >= count) {
-        remainder = lines.slice(index + 1).join("\n")
-        break
+      const event = expected[matched]!
+      if (current.host !== event.host || current.eventId !== event.eventId) return false
+      matched++
+      if (matched === expected.length) {
+        await replace(path, lines.slice(index + 1).join("\n"))
+        return true
       }
     }
-    await replace(path, remainder)
+    return false
   })
 }
 
