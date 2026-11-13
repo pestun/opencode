@@ -178,7 +178,7 @@ Capture appends selected events to `~/.local/share/opencode-shared-history/outbo
 - While the service is unreachable, events remain in the outbox; sync logs one warning per failure streak and retries with exponential backoff capped at 60 seconds.
 - Normal sync flushes every 2 seconds in batches of up to 100 events and also flushes promptly when new events arrive.
 - Records are removed only after successful ingestion. A restart or retry may redeliver them, and the service's `(host, event_id)` key makes duplicate delivery safe.
-- When connectivity returns, delivery resumes automatically. Search, transcript, and seed are online reads and require the service to be reachable.
+- When connectivity returns, delivery resumes automatically. Because retry uses exponential backoff capped at 60 seconds, a pending batch can take approximately 60 seconds to replay after a long outage. Search, transcript, and seed are online reads and require the service to be reachable.
 - At 10 MB, the outbox discards its oldest half and logs a warning. Extended offline operation can therefore shed old local records; size the outage window and central backups accordingly.
 
 ## Security and privacy
@@ -249,13 +249,19 @@ The managed alpha/beta services used ports 49375/49376 because the inherited por
    respectively listed the alpha session and returned `2026-11-13T19:33:38.234Z  alpha  ses_e299963e6ffeW7uuUsPib3p9X6  Host alpha marker 88231`.
 2. **PASS — beta live tool search:** under beta’s environment, `/opt/homebrew/bin/opencode run --auto --format json 'Call the history_search tool with {"query":"88231"}. Return only host=... and session=... from the tool output.'` completed a nested `history_search` call. Its tool output included `host=alpha`, the alpha session ID, and `Host alpha marker 88231`; final text was `host=alpha session=ses_e299963e6ffeW7uuUsPib3p9X6`. An initial invocation without `--auto` timed out awaiting tool execution and was not counted as a pass.
 3. **PASS — fork without execution:** under beta’s environment, `/Users/vasily/code/.bun/bin/bun run service/src/cli.ts seed alpha ses_e299963e6ffeW7uuUsPib3p9X6` created the different session `ses_e29901710ffeLRqmF3XfS2luyO`. `/opt/homebrew/bin/opencode api get /api/session/ses_e29901710ffeLRqmF3XfS2luyO/inbox` returned one admitted `type:user` payload containing the condensed alpha history and marker. `/opt/homebrew/bin/opencode session export ses_e29901710ffeLRqmF3XfS2luyO` showed zero tokens and `messages:[]`; central beta transcript contained only `session.created`. Saving alpha’s transcript before/after with `/Users/vasily/code/.bun/bin/bun run service/src/cli.ts transcript alpha ses_e299963e6ffeW7uuUsPib3p9X6` and running `cmp -s` exited zero, proving it unchanged.
-4. **FAIL — offline recovery:** after stopping only the central listener, alpha ran `/opt/homebrew/bin/opencode run --auto --format json 'Reply with exactly OK. Record HOST ALPHA OFFLINE MARKER 99274.'`; it returned `OK` and buffered five events. The central service was restarted, then these checks ran without restarting alpha or replaying manually:
+4. **PASS — offline recovery and user capture:** with fixed mapper commit `c06e987` installed into alpha’s isolated plugin directory, central was stopped and alpha ran `/opt/homebrew/bin/opencode run --auto --format json 'Reply with exactly OK. Record HOST ALPHA OFFLINE MARKER 99302.'`. It returned `OK` and buffered five records in session `ses_e29446799ffek161KcVtfEx1ap`. Central was restarted with `HISTORY_TOKEN=dev PORT=8797 /Users/vasily/code/.bun/bin/bun run start` from `service/`; alpha was not restarted and no new turns or manual replays were issued. A once-per-second condition loop with a 90-second deadline ran:
    ```sh
-   curl -fsS --max-time 5 http://127.0.0.1:8797/health
-   sleep 10
-   HISTORY_URL=http://localhost:8797 HISTORY_TOKEN=dev /Users/vasily/code/.bun/bin/bun run service/src/cli.ts search 99274
+   HISTORY_URL=http://localhost:8797 HISTORY_TOKEN=dev /Users/vasily/code/.bun/bin/bun run service/src/cli.ts search 99302
    wc -l < /tmp/osh-a/.local/share/opencode-shared-history/outbox.jsonl
    ```
-   Health returned `{"status":"ok"}`, but marker search returned no rows and the outbox still contained all five records. Testing stopped at this failed assertion. Exact evidence and cleanup are in `.superpowers/sdd/2026-11-12-shared-history/task-10-report.md`.
+   It passed at `t=24s` with this exact output:
+   ```text
+   2026-11-13T21:06:23.595Z  alpha  ses_e29446799ffek161KcVtfEx1ap  Host alpha offline marker 99302
+   2026-11-13T21:06:21.123Z  alpha  ses_e29446799ffek161KcVtfEx1ap  Reply with exactly OK. Record HOST ALPHA OFFLINE MARKER 99302.
+   Pending alpha outbox records: 0
+   ```
+   Central transcript confirmed the latter as a `message` record containing the exact admitted user prompt.
 
-All smoke OpenCode/history processes were stopped after the failure. The pre-existing Docker database and the owner’s unrelated service on port 49374 remain untouched.
+**Final result: 4/4 PASS.** The E2E caught two defects: the original 10-second check was shorter than legitimate capped-backoff recovery (now allowed up to 90 seconds), and admitted user prompts were absent until `session.inbox.enqueued` mapping was added. Full chronological evidence and cleanup are in `.superpowers/sdd/2026-11-12-shared-history/task-10-report.md`.
+
+All smoke OpenCode/history processes were stopped after the passing replay; central port 8797 remains stopped. The pre-existing Docker database and the owner’s unrelated service on port 49374 remain untouched.
