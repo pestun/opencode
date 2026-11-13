@@ -56,8 +56,8 @@ function track(client: HistoryClient | (() => HistoryClient | undefined), onErro
   return loop
 }
 
-async function eventually(assertion: () => Promise<void>): Promise<void> {
-  const deadline = Date.now() + 5_000
+async function eventually(assertion: () => Promise<void>, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
   let lastError: unknown
   while (Date.now() < deadline) {
     try {
@@ -245,3 +245,49 @@ test("sync - reports once per failure streak and resets after success", async ()
   expect(errors).toHaveLength(2)
   expect(await readPending()).toEqual([event(2, host)])
 })
+
+test("sync - recovers automatically after repeated capped failures without notification", async () => {
+  const host = `sync-capped-recovery-${crypto.randomUUID()}`
+  const events = [event(1, host), event(2, host), event(3, host)]
+  await append(events)
+  const deadClient = createHistoryClient({ url: "http://127.0.0.1:1", token: "offline" })
+  let attempts = 0
+  const offlineClient: HistoryClient = {
+    ...deadClient,
+    async ingest(batch) {
+      try {
+        await deadClient.ingest(batch)
+      } finally {
+        attempts++
+      }
+    },
+  }
+  let client = offlineClient
+  const errors: unknown[] = []
+  const loop = createSyncLoop({ client: () => client, intervalMs: 50, onError: error => errors.push(error) })
+  loops.push(loop)
+
+  // Drive twelve failed attempts: 50 * 2 ** 11 exceeds the default 60-second cap.
+  // Accelerating the pre-recovery attempts avoids sleeping through every lower delay.
+  for (let expected = 1; expected <= 12; expected++) {
+    loop.notify()
+    await eventually(async () => {
+      expect(attempts).toBeGreaterThanOrEqual(expected)
+    })
+  }
+  expect(errors).toHaveLength(1)
+  expect(await readPending()).toEqual(events)
+
+  const attemptsAtRecovery = attempts
+  const recoveredAt = Date.now()
+  client = liveClient
+
+  // No notify(), process restart, or new events: only the existing retry timer can recover the outbox.
+  await eventually(async () => {
+    expect(await liveClient.transcript(host, "ses_sync")).toEqual(events)
+    expect(await readPending()).toEqual([])
+  }, 65_000)
+  expect(Date.now() - recoveredAt).toBeLessThan(65_000)
+  expect(attempts).toBe(attemptsAtRecovery)
+  expect(errors).toHaveLength(1)
+}, 70_000)
