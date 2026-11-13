@@ -222,3 +222,40 @@ bun test
 4. Check OpenCode's startup logs for `shared-history`, `failed to load plugin`, or import errors. For standalone diagnostics, `opencode --standalone --print-logs plugin list` prints server logs while checking discovery.
 5. Check applicable OpenCode `plugins` arrays for a `-shared-history` removal directive. Also ensure no second loaded plugin uses the same `shared-history` ID.
 6. If the plugin is listed but tools say `history service not configured (set HISTORY_URL and HISTORY_TOKEN)`, the plugin loaded successfully and the missing item is the server process environment. Export both variables and restart OpenCode rather than reinstalling.
+
+## E2E smoke — results 2026-11-13
+
+Live smoke used `/opt/homebrew/bin/opencode` v2.2.7-vasily and two isolated hosts with both `HOME=/tmp/osh-a|b` and matching `OPENCODE_CONFIG_DIR` overrides. Provider config and auth were copied to the fake homes; the owner’s real configuration and background service were not modified. Plugins were installed with:
+
+```sh
+env -u OPENCODE_DISABLE_DEFAULT_PLUGINS HOME=/tmp/osh-a OPENCODE_CONFIG_DIR=/tmp/osh-a/.config/opencode bash plugin/install.sh
+env -u OPENCODE_DISABLE_DEFAULT_PLUGINS HOME=/tmp/osh-b OPENCODE_CONFIG_DIR=/tmp/osh-b/.config/opencode bash plugin/install.sh
+```
+
+Each installer reported the correct destination, including the generated `server.ts`. Central service, from `service/`:
+
+```sh
+HISTORY_TOKEN=dev PORT=8797 /Users/vasily/code/.bun/bin/bun run start
+curl -fsS --max-time 5 http://127.0.0.1:8797/health  # {"status":"ok"}
+```
+
+The managed alpha/beta services used ports 49375/49376 because the inherited port 49374 was the owner’s live service. Their environments were the respective home/config overrides plus `HISTORY_URL=http://localhost:8797`, `HISTORY_TOKEN=dev`, and `HISTORY_HOST=alpha|beta`, with `OPENCODE_DISABLE_DEFAULT_PLUGINS` unset.
+
+1. **PASS — alpha capture:** `/opt/homebrew/bin/opencode run --format json 'Reply with exactly OK. Record HOST ALPHA MARKER 88231.'` created `ses_e299963e6ffeW7uuUsPib3p9X6` and returned `OK`. With `HISTORY_URL=http://localhost:8797 HISTORY_TOKEN=dev`, these commands:
+   ```sh
+   /Users/vasily/code/.bun/bin/bun run service/src/cli.ts sessions
+   /Users/vasily/code/.bun/bin/bun run service/src/cli.ts search 88231
+   ```
+   respectively listed the alpha session and returned `2026-11-13T19:33:38.234Z  alpha  ses_e299963e6ffeW7uuUsPib3p9X6  Host alpha marker 88231`.
+2. **PASS — beta live tool search:** under beta’s environment, `/opt/homebrew/bin/opencode run --auto --format json 'Call the history_search tool with {"query":"88231"}. Return only host=... and session=... from the tool output.'` completed a nested `history_search` call. Its tool output included `host=alpha`, the alpha session ID, and `Host alpha marker 88231`; final text was `host=alpha session=ses_e299963e6ffeW7uuUsPib3p9X6`. An initial invocation without `--auto` timed out awaiting tool execution and was not counted as a pass.
+3. **PASS — fork without execution:** under beta’s environment, `/Users/vasily/code/.bun/bin/bun run service/src/cli.ts seed alpha ses_e299963e6ffeW7uuUsPib3p9X6` created the different session `ses_e29901710ffeLRqmF3XfS2luyO`. `/opt/homebrew/bin/opencode api get /api/session/ses_e29901710ffeLRqmF3XfS2luyO/inbox` returned one admitted `type:user` payload containing the condensed alpha history and marker. `/opt/homebrew/bin/opencode session export ses_e29901710ffeLRqmF3XfS2luyO` showed zero tokens and `messages:[]`; central beta transcript contained only `session.created`. Saving alpha’s transcript before/after with `/Users/vasily/code/.bun/bin/bun run service/src/cli.ts transcript alpha ses_e299963e6ffeW7uuUsPib3p9X6` and running `cmp -s` exited zero, proving it unchanged.
+4. **FAIL — offline recovery:** after stopping only the central listener, alpha ran `/opt/homebrew/bin/opencode run --auto --format json 'Reply with exactly OK. Record HOST ALPHA OFFLINE MARKER 99274.'`; it returned `OK` and buffered five events. The central service was restarted, then these checks ran without restarting alpha or replaying manually:
+   ```sh
+   curl -fsS --max-time 5 http://127.0.0.1:8797/health
+   sleep 10
+   HISTORY_URL=http://localhost:8797 HISTORY_TOKEN=dev /Users/vasily/code/.bun/bin/bun run service/src/cli.ts search 99274
+   wc -l < /tmp/osh-a/.local/share/opencode-shared-history/outbox.jsonl
+   ```
+   Health returned `{"status":"ok"}`, but marker search returned no rows and the outbox still contained all five records. Testing stopped at this failed assertion. Exact evidence and cleanup are in `.superpowers/sdd/2026-11-12-shared-history/task-10-report.md`.
+
+All smoke OpenCode/history processes were stopped after the failure. The pre-existing Docker database and the owner’s unrelated service on port 49374 remain untouched.

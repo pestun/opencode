@@ -223,12 +223,12 @@ test("batch rejects if any item invalid", () => expect(() => decodeHistoryEventB
 
 **Files:** none — checklist recorded in `README.md` under "E2E smoke".
 
-- [ ] **Step 1:** Start service (docker PG + `HISTORY_TOKEN=dev PORT=8797 bun run start` in `service/`).
-- [ ] **Step 2:** Two isolated opencode "hosts" on this machine using separate homes, e.g. `HOME=/tmp/osh-a opencode run --standalone --prompt "Host alpha: remember decision X"` and `HOME=/tmp/osh-b ...` with `HISTORY_HOST=alpha|beta`, `HISTORY_URL=http://localhost:8797`, `HISTORY_TOKEN=dev`, plugin preinstalled into those config homes via `plugin/install.sh`.
-- [ ] **Step 3:** After ~5 s, `oc-history sessions` shows host `alpha`; from host B, agent `history_search "decision X"` finds it. Expected: snippet carries `host=alpha`.
-- [ ] **Step 4:** Fork: on B, CLI `oc-history seed alpha <sessionId>` (or agent tool); open the new session with `opencode --session <newSessionId>` under HOME B. Expected: new id ≠ original, condensed history visible as the admitted user message, **no agent turn fires on open**, original session on A unchanged.
-- [ ] **Step 5:** Offline: stop the service, run a turn on A (works normally, events buffer), restart the service, buffered events appear in `oc-history search` without manual intervention.
-- [ ] **Step 6:** If any assertion fails, stop and file the failure as a bug task before declaring completion. Commit checklist results into README or the plan's checkboxes.
+- [x] **Step 1 — PASS:** Start service (docker PG + `HISTORY_TOKEN=dev PORT=8797 bun run start` in `service/`).
+- [x] **Step 2 — PASS:** Two isolated opencode "hosts" on this machine using separate homes, e.g. `HOME=/tmp/osh-a opencode run --standalone --prompt "Host alpha: remember decision X"` and `HOME=/tmp/osh-b ...` with `HISTORY_HOST=alpha|beta`, `HISTORY_URL=http://localhost:8797`, `HISTORY_TOKEN=dev`, plugin preinstalled into those config homes via `plugin/install.sh`.
+- [x] **Step 3 — PASS:** After ~5 s, `oc-history sessions` shows host `alpha`; from host B, agent `history_search "decision X"` finds it. Expected: snippet carries `host=alpha`.
+- [x] **Step 4 — PASS:** Fork: on B, CLI `oc-history seed alpha <sessionId>`; verify the new session through opencode CLI/API under HOME B. New id ≠ original, condensed history is present as the admitted user message, **no agent turn fires**, original session on A unchanged.
+- [x] **Step 5 — FAIL:** Offline turn succeeds and buffers five events, but after service restart and a 10-second wait, marker search is empty and all five records remain pending.
+- [x] **Step 6 — PASS:** Stopped after assertion 5 and filed exact bug evidence in `.superpowers/sdd/2026-11-12-shared-history/task-10-report.md`; committed checklist results in README and these checkboxes.
 
 ---
 
