@@ -187,6 +187,23 @@ The OpenCode credential store and OpenCode configuration are not capture sources
 
 The central database and every local outbox are therefore sensitive. Keep the service private and trusted, protect the shared bearer token, restrict database access, and use an appropriately secured private network or tunnel. This repository does not provide redaction, per-user authorization, or TLS termination.
 
+## Testing
+
+Run the complete verification suite from the repository root:
+
+```sh
+bun run test
+```
+
+This is the only repository-wide test entry point and runs `shared/`, `service/`, and `plugin/` serially in that order. **Do not run the package suites in parallel:** all service suites share the Docker Postgres database and truncate its tables between tests, so parallel suites corrupt each other's data.
+
+For focused work, running `bun test` inside one package is allowed:
+
+```sh
+cd shared  # or service, or plugin
+bun test
+```
+
 ## Troubleshooting
 
 ### Service unreachable
