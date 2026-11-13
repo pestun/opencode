@@ -105,7 +105,7 @@ export async function runCli(
     const [host, sessionId] = args
     if (command === "seed") {
       const text = condenseTranscript(await client.transcript(host, sessionId))
-      const server = await localOpenCodeUrl(env)
+      const server = await discoverLocalOpenCode(env)
       const created = await localOpenCodeRequest(server, "/api/session", {
         title: `Fork of ${sessionId} on ${host}`,
         metadata: { forkedFrom: { host, sessionId } },
@@ -130,27 +130,65 @@ export async function runCli(
   }
 }
 
-async function localOpenCodeUrl(env: Record<string, string | undefined>): Promise<string> {
-  const child = Bun.spawn(["opencode", "service", "status"], {
+const localServerMessage = "Could not reach a local opencode server; start opencode first"
+
+type LocalOpenCode = {
+  url: string
+  authorization?: string
+}
+
+async function discoverLocalOpenCode(env: Record<string, string | undefined>): Promise<LocalOpenCode> {
+  let status: { exit: number; stdout: string }
+  try {
+    status = await openCodeCommand(env, ["status"])
+  } catch {
+    throw new Error(localServerMessage)
+  }
+  const url = status.stdout.trim()
+  if (status.exit !== 0 || !/^https?:\/\//.test(url)) throw new Error(localServerMessage)
+
+  const credentials = await openCodeCommand(env, ["get", "password"]).catch(() => undefined)
+  const password = credentials?.exit === 0 ? credentials.stdout.trim() : ""
+  return {
+    url: url.replace(/\/+$/, ""),
+    ...(password
+      ? { authorization: `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}` }
+      : {}),
+  }
+}
+
+async function openCodeCommand(
+  env: Record<string, string | undefined>,
+  args: string[],
+): Promise<{ exit: number; stdout: string }> {
+  const child = Bun.spawn(["opencode", "service", ...args], {
     env,
     stdout: "pipe",
     stderr: "pipe",
   })
   const [exit, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()])
-  const url = stdout.trim()
-  if (exit !== 0 || !/^https?:\/\//.test(url)) {
-    throw new Error("Could not reach a local opencode server; start opencode first")
-  }
-  return url.replace(/\/+$/, "")
+  return { exit, stdout }
 }
 
-async function localOpenCodeRequest(server: string, path: string, body: Record<string, unknown>): Promise<unknown> {
-  const response = await fetch(`${server}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(10_000),
-  })
+async function localOpenCodeRequest(
+  server: LocalOpenCode,
+  path: string,
+  body: Record<string, unknown>,
+): Promise<unknown> {
+  let response: Response
+  try {
+    response = await fetch(`${server.url}${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(server.authorization ? { Authorization: server.authorization } : {}),
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
+    })
+  } catch {
+    throw new Error(localServerMessage)
+  }
   if (!response.ok) throw new Error(`local opencode request failed (${response.status}): ${await response.text()}`)
   return response.json()
 }
