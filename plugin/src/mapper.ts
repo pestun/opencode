@@ -7,8 +7,10 @@ const truncationSuffix = "…[truncated]"
  * Field names verified against opencode v2.2.7 `packages/schema/src/event.ts`, `session-event.ts`, `tool.ts`, and
  * `packages/core/src/session/message-updater.ts` / `projector.ts`:
  * - Event envelopes carry `id`, epoch-millisecond `created`, `type`, and payload fields under `data.sessionID`.
- * - `session.text.ended` carries full text in `data.text`; content updates carry encoded parts in `data.content`, with
- *   assistant text in each `{ type: "text", text }` part.
+ * - `session.text.ended` carries full text in `data.text`; replay-only content updates carry encoded assistant parts
+ *   in `data.content`, with assistant text in each `{ type: "text", text }` part. Admitted user prompts instead arrive
+ *   in `session.inbox.enqueued` as `data.item = { type: "user", payload: { text }, delivery }`; retaining `data` in
+ *   the history payload preserves the user role.
  * - Called tools carry input in `data.input`; settled tools carry output in `data.content` text parts. Failed tools
  *   also carry `data.error.message`. `session.tool.input.started` carries `data.id` and `data.name`; it only updates
  *   the mapper's call-ID registry and emits no history record. A plugin restart loses names, so later events fall back
@@ -78,6 +80,11 @@ function mapContent(
       return { kind: type, content: typeof data.title === "string" ? data.title : "" }
     case "session.message.content.updated":
       return { kind: "message", content: contentText(data.content) }
+    case "session.inbox.enqueued": {
+      const item = data.item
+      if (!isRecord(item) || item.type !== "user" || !isRecord(item.payload)) return
+      return { kind: "message", content: typeof item.payload.text === "string" ? item.payload.text : "" }
+    }
     case "session.text.ended":
       return { kind: "message", content: typeof data.text === "string" ? data.text : "" }
     case "session.tool.called":

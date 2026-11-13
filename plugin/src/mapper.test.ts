@@ -88,6 +88,28 @@ test("mapEvent - message content updates carry only assistant text", () => {
   expectMapped(event, "message", "First paragraph\nSecond paragraph")
 })
 
+test("mapEvent - admitted user inbox items carry prompt text and role", () => {
+  const prompt = "Reply with exactly OK. Record HOST ALPHA OFFLINE MARKER 99301."
+  const event = durableEvent("session.inbox.enqueued", {
+    sessionID: "ses_1",
+    inboxID: "msg_1",
+    item: {
+      type: "user",
+      payload: { text: prompt },
+      delivery: "steer",
+    },
+  })
+
+  expectMapped(event, "message", prompt)
+
+  const synthetic = durableEvent("session.inbox.enqueued", {
+    sessionID: "ses_1",
+    inboxID: "msg_2",
+    item: { type: "synthetic", payload: { text: "System context" }, delivery: "steer" },
+  })
+  expect(createMapper()({ host: "alpha", project: "/repo", event: synthetic })).toBeUndefined()
+})
+
 test("mapEvent - completed text carries the full message text", () => {
   const event = durableEvent("session.text.ended", {
     sessionID: "ses_1",
