@@ -4,6 +4,7 @@
   "type": "module",
   "exports": {
     "./event": "./src/event.ts",
-    "./client": "./src/client.ts"
+    "./client": "./src/client.ts",
+    "./seed": "./src/seed.ts"
   }
 }

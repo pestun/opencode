@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test"
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { createHistoryClient } from "shared/client"
 import type { HistoryEvent } from "shared/event"
 import { runCli } from "./cli"
@@ -124,6 +127,57 @@ test("sessions prints host, session, project, and time bounds", async () => {
       "2026-11-12T11:00:00.000Z  cli-host  cli-session  cli-project  2026-11-12T10:00:00.000Z",
     stderr: "",
   })
+})
+
+test("seed creates an independent local session and admits the condensed transcript without resuming", async () => {
+  const source = makeEvent({ host: "source-host", sessionId: "source-session", content: "carry this decision" })
+  await client.ingest([source])
+  const requests: Array<{ path: string; body: Record<string, unknown> }> = []
+  const local = Bun.serve({
+    port: 0,
+    async fetch(request) {
+      const body = (await request.json()) as Record<string, unknown>
+      const path = new URL(request.url).pathname
+      requests.push({ path, body })
+      if (path === "/api/session") {
+        return Response.json({ data: { id: "ses_local_fork" } })
+      }
+      return Response.json({ data: { id: "message-1" } })
+    },
+  })
+  const directory = await mkdtemp(join(tmpdir(), "shared-history-cli-"))
+  const executable = join(directory, "opencode")
+  await writeFile(executable, `#!/bin/sh\nprintf '%s\\n' 'http://127.0.0.1:${local.port}'\n`)
+  await chmod(executable, 0o755)
+
+  try {
+    const result = await invoke(["seed", source.host, source.sessionId!], {
+      ...configuredEnv(),
+      PATH: directory,
+    })
+
+    expect(result).toEqual({
+      exit: 0,
+      stdout: "Created session ses_local_fork\nOpen it with: opencode --session ses_local_fork",
+      stderr: "",
+    })
+    expect(requests).toHaveLength(2)
+    expect(requests[0]?.path).toBe("/api/session")
+    expect(requests[0]?.body).toEqual({
+      title: "Fork of source-session on source-host",
+      metadata: { forkedFrom: { host: source.host, sessionId: source.sessionId } },
+    })
+    expect(requests[0]?.body).not.toHaveProperty("parentID")
+    expect(requests[1]?.path).toBe("/api/session/ses_local_fork/prompt")
+    expect(requests[1]?.body).toEqual({
+      text: "Forked from host source-host, session source-session. Original below.\n\n" +
+        "[2026-11-12T10:00:00.000Z] message\n\ncarry this decision",
+      resume: false,
+    })
+  } finally {
+    local.stop(true)
+    await rm(directory, { recursive: true, force: true })
+  }
 })
 
 test("transcript prints ordered event lines", async () => {
