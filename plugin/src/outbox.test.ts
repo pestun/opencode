@@ -121,7 +121,7 @@ test("ack counts decoded records rather than invalid physical lines", async () =
 
 test("interleaved append and ack calls do not lose unacked records", async () => {
   const first = Array.from({ length: 100 }, (_, index) => event(index))
-  const operations: Promise<void>[] = [append(first)]
+  const operations: Promise<unknown>[] = [append(first)]
 
   for (let start = 0; start < first.length; start += 10) {
     const acknowledged = (start / 10) * 3

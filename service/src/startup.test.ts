@@ -13,6 +13,7 @@ function unusedPort(): number {
   const listener = Bun.serve({ port: 0, fetch: () => new Response("unused") })
   const port = listener.port
   listener.stop(true)
+  if (port === undefined) throw new Error("temporary listener did not allocate a port")
   return port
 }
 

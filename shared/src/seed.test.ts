@@ -42,11 +42,20 @@ test("condenseTranscript - prepends fork header and sorts chronologically", () =
 
 test("seedSession - rejects an unknown session before creating a local fork", async () => {
   let creates = 0
-  const client = {
+  const client: HistoryClient = {
+    async ingest() {
+      throw new Error("unknown session test must not ingest")
+    },
+    async search() {
+      return []
+    },
+    async sessions() {
+      return []
+    },
     async transcript() {
       return []
     },
-  } as HistoryClient
+  }
   const ctx = {
     session: {
       async create() {
