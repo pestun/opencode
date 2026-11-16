@@ -54,7 +54,7 @@ bun run start
 export DATABASE_URL='postgres://user:password@database-host:5432/history'
 ```
 
-Startup requires `HISTORY_TOKEN`; without it the process exits with `HISTORY_TOKEN required`. The database migration runs automatically. Check unauthenticated liveness with:
+Startup requires `HISTORY_TOKEN`; without it the process exits with `HISTORY_TOKEN required`. The database migration runs automatically before the HTTP listener starts. If PostgreSQL is temporarily unavailable, startup retries up to 10 times with exponential backoff from 500 ms to 5 seconds; after that it exits with an actionable `History database startup failed` error for a supervisor to restart. A rejected migration is also discarded so later database operations can retry after recovery. Check unauthenticated liveness with:
 
 ```sh
 curl http://127.0.0.1:8797/health

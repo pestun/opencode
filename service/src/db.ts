@@ -51,14 +51,28 @@ function historyEvents(rows: EventRow[]): HistoryEvent[] {
   )
 }
 
+function migrate(sql: Sql): Promise<unknown> {
+  const migrationPath = fileURLToPath(new URL("./migrations/001_init.sql", import.meta.url))
+  return Promise.resolve(sql.file(migrationPath))
+}
+
 async function migrated(sql: Sql): Promise<void> {
-  await migrations.get(sql)
+  let migration = migrations.get(sql)
+  if (migration === undefined) {
+    migration = migrate(sql)
+    migrations.set(sql, migration)
+  }
+  try {
+    await migration
+  } catch (error) {
+    if (migrations.get(sql) === migration) migrations.delete(sql)
+    throw error
+  }
 }
 
 export function connect(databaseUrl?: string): Sql {
   const sql = postgres(databaseUrl ?? process.env.DATABASE_URL ?? defaultDatabaseUrl, { onnotice: () => {} })
-  const migrationPath = fileURLToPath(new URL("./migrations/001_init.sql", import.meta.url))
-  migrations.set(sql, Promise.resolve(sql.file(migrationPath)))
+  migrations.set(sql, migrate(sql))
   return sql
 }
 
