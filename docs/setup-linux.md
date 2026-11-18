@@ -13,7 +13,7 @@ supplied plugin and service run from source.
 | `curl`, `unzip`, CA certificates | every installer host | download OpenCode and Bun |
 | **Bun 1.4.4 or newer 1.4.x** | service host and hosts using the CLI | run the TypeScript service, plugin tooling, tests and CLI |
 | **Stock OpenCode v2.2.7 or newer** | every agent host | host sessions and load this plugin; no opencode source changes needed |
-| **Docker + Compose v2**, or an existing **PostgreSQL 16** server | service host | run the central history database |
+| **Docker + Compose v2**, or an existing **PostgreSQL 16** server | service host, and any host running the test suite | run the central history database; tests use a real DB (no mocks) |
 | PostgreSQL client tools (optional) | service host | inspect/backup the DB |
 
 The complete runtime download footprint is roughly 400 MB per agent host, plus a
@@ -129,7 +129,23 @@ The repository's `main` history belongs to the upstream opencode fork, not to th
 the `-b` selection above is therefore required.
 
 This installs the monorepo's workspace dependencies. It does **not** create a separate
-compiled executable: Bun executes the service and CLI source directly. Verify this with:
+compiled executable: Bun executes the service and CLI source directly.
+
+Before running the test suite, start its real development database (the only external
+component the tests require; do this on every machine where you run tests):
+
+```sh
+docker compose -f service/docker-compose.yml up -d db
+```
+
+Expected: a `service-db-1` container listening on **port 54329**. Switch to your own
+PostgreSQL instead by exporting `DATABASE_URL` for the test process. If you skip the DB
+step you will see PostgreSQL connection-refused failures — that means the database is not
+reachable, not that the plugin build failed. You do **not** need to start the central history
+service for the test suite: the tests launch their own throwaway HTTP servers automatically
+on random ports.
+
+Verify with:
 
 ```sh
 bun run test
