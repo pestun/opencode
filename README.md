@@ -1,5 +1,7 @@
 # Shared history for OpenCode
 
+For Linux prerequisites and complete service + per-host installation, including an optional from-source OpenCode build, see **[Linux setup guide](docs/setup-linux.md)**.
+
 Share session narrative across independent OpenCode hosts without moving execution, files, or workspaces onto a central machine. A stock OpenCode v2.2.7 plugin on each host captures selected session events to a durable local outbox, then asynchronously syncs them to one private history service.
 
 ## Overview
