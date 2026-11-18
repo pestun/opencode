@@ -291,13 +291,16 @@ For additional commands and troubleshooting, see the project [README](../README.
 ## Appendix A: Building OpenCode itself on Linux
 
 Separate task; **not required** for shared-history's service/plugin. Only do this when you
-need a custom-built OpenCode instead of the stock binary.
+need a custom-built OpenCode instead of the stock binary. **Do not run these commands in the
+`opencode-shared-history` project checkout:** `packages/cli` belongs to the separate upstream
+OpenCode repository, which this appendix clones into a different directory.
 
 Prerequisites on Linux: git, curl, unzip and Bun 1.4.4 as above. Then:
 
 ```sh
-git clone --filter=blob:none https://github.com/anomalyco/opencode.git
-cd opencode
+# Run this from a separate directory, creating a new upstream OpenCode checkout:
+git clone --filter=blob:none https://github.com/anomalyco/opencode.git opencode-upstream
+cd opencode-upstream
 git checkout v2.2.7
 bun install
 cd packages/cli
