@@ -194,7 +194,7 @@ The central database and every local outbox are therefore sensitive. Keep the se
 Start the real development PostgreSQL before running any suite, otherwise its connection-refused failures are expected:
 
 ```sh
-docker compose -f service/docker-compose.yml up -d db   # exposed on port 54329
+(cd service && docker compose up -d db)   # exposed on port 54329
 ```
 
 No separately running central history service is needed; HTTP tests start their own ephemeral servers. To test against another PostgreSQL server, set `DATABASE_URL` for the test process.

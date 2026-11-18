@@ -135,10 +135,12 @@ Before running the test suite, start its real development database (the only ext
 component the tests require; do this on every machine where you run tests):
 
 ```sh
-docker compose -f service/docker-compose.yml up -d db
+(cd service && docker compose up -d db)
 ```
 
-Expected: a `service-db-1` container listening on **port 54329**. Switch to your own
+Expected: a `service-db-1` container listening on **port 54329**. If your host is missing the
+Compose plugin (`unknown command "compose"`), install Docker's Compose v2 plugin first; see
+Step 3. Switch to your own
 PostgreSQL instead by exporting `DATABASE_URL` for the test process. If you skip the DB
 step you will see PostgreSQL connection-refused failures — that means the database is not
 reachable, not that the plugin build failed. You do **not** need to start the central history
