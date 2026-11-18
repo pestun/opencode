@@ -138,9 +138,10 @@ component the tests require; do this on every machine where you run tests):
 (cd service && docker compose up -d db)
 ```
 
-Expected: a `service-db-1` container listening on **port 54329**. If your host is missing the
-Compose plugin (`unknown command "compose"`), install Docker's Compose v2 plugin first; see
-Step 3. Switch to your own
+Expected: a `service-db-1` container listening on **port 54329**. If Docker says
+`unknown command "compose"`, you do not have the Compose plugin and can either install the
+Compose v2 plugin (Step 3) or avoid it entirely with the plain-`docker run` command in
+Step 7a below. Switch to your own
 PostgreSQL instead by exporting `DATABASE_URL` for the test process. If you skip the DB
 step you will see PostgreSQL connection-refused failures — that means the database is not
 reachable, not that the plugin build failed. You do **not** need to start the central history
@@ -174,7 +175,32 @@ docker compose ps
 ```
 
 The `db` container initializes a database/user/password named `history` and listens on
-**localhost port 54329**, with data stored in the Compose `pgdata` volume.
+host port **54329**, with data stored in the Compose `pgdata` volume. Secure network exposure
+at host level (for example with a private bind instead of the Compose default), especially
+outside a private test environment.
+
+**Alternative without Compose:** if `docker compose` reports `unknown command`, you can start
+the equivalent database using only the Docker engine. Add `sudo` **only** if your account
+actually needs elevated Docker privileges; on rootless Docker, or with an already-authorized
+account, omit it entirely. If the engine responds with `permission denied ... docker.sock`,
+Docker access is restricted by the host administrator — use an existing reachable PostgreSQL
+16 through `DATABASE_URL`, or ask for access:
+
+```sh
+sudo docker run -d \
+  --name opencode-history-db \
+  --restart unless-stopped \
+  -p 127.0.0.1:54329:5432 \
+  -e POSTGRES_USER=history \
+  -e POSTGRES_PASSWORD=history \
+  -e POSTGRES_DB=history \
+  -v opencode-history-pgdata:/var/lib/postgresql/data \
+  postgres:16-alpine
+```
+
+This gives the same database, host port and credentials but persists under the named volume
+`opencode-history-pgdata`. After that, the test suite and `DATABASE_URL` usage below work
+unchanged; you never need to install the Compose plugin just to run this project.
 
 ### 7b. Configure and run the service
 

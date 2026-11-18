@@ -197,6 +197,8 @@ Start the real development PostgreSQL before running any suite, otherwise its co
 (cd service && docker compose up -d db)   # exposed on port 54329
 ```
 
+If your Docker engine has no Compose plugin (`unknown command "compose"`), section 7a of the [Linux setup guide](docs/setup-linux.md) provides an equivalent plain `docker run` command; no plugin installation is required.
+
 No separately running central history service is needed; HTTP tests start their own ephemeral servers. To test against another PostgreSQL server, set `DATABASE_URL` for the test process.
 
 Then run the complete verification suite from the repository root:
