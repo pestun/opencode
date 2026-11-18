@@ -187,7 +187,7 @@ Docker access is restricted by the host administrator — use an existing reacha
 16 through `DATABASE_URL`, or ask for access:
 
 ```sh
-sudo docker run -d \
+docker run -d \
   --name opencode-history-db \
   --restart unless-stopped \
   -p 127.0.0.1:54329:5432 \
